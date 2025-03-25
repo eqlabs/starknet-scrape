@@ -162,12 +162,20 @@ where
         Ok(())
     }
 
-    fn unpack_repeating_value_pointers(&mut self, n_unique_values: usize) -> eyre::Result<Vec<BigUint>> {
+    fn unpack_repeating_value_pointers(
+        &mut self,
+        n_unique_values: usize,
+    ) -> eyre::Result<Vec<BigUint>> {
         let n_repeating_values = self.sizes[7];
         let pointer_bound = n_unique_values.to_biguint().unwrap();
         let n_elms_per_felt = get_n_elms_per_felt(n_unique_values);
         let mut pointers = Vec::new();
-        self.unpack_felts(n_repeating_values, &pointer_bound, n_elms_per_felt, &mut pointers)?;
+        self.unpack_felts(
+            n_repeating_values,
+            &pointer_bound,
+            n_elms_per_felt,
+            &mut pointers,
+        )?;
         Ok(pointers)
     }
 
@@ -188,11 +196,20 @@ where
         let total_n_buckets = TOTAL_N_BUCKETS.to_biguint().unwrap();
         let n_elms_per_felt = 83; // get_n_elms_per_felt(TOTAL_N_BUCKETS);
         let mut bucket_index_per_elm = Vec::new();
-        self.unpack_felts(self.sizes[0], &total_n_buckets, n_elms_per_felt, &mut bucket_index_per_elm)?;
+        self.unpack_felts(
+            self.sizes[0],
+            &total_n_buckets,
+            n_elms_per_felt,
+            &mut bucket_index_per_elm,
+        )?;
         Ok(bucket_index_per_elm)
     }
 
-    fn reconstruct_data(&mut self, all_values: &Vec<BigUint>, bucket_index_per_elm: &Vec<BigUint>) -> Vec<BigUint> {
+    fn reconstruct_data(
+        &mut self,
+        all_values: &Vec<BigUint>,
+        bucket_index_per_elm: &Vec<BigUint>,
+    ) -> Vec<BigUint> {
         // input includes repeated values count but that's just a
         // placeholder - the offset after the last segment (AKA the
         // total count) is neither needed nor included in
