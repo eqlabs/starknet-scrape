@@ -1,0 +1,5 @@
+rpc_url = ...
+blob_url_base = "https://api.blobscan.com/blobs/"
+cache_dir = "cache"
+
+
