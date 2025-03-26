@@ -40,10 +40,10 @@ impl<I> StateUpdateParser<I>
 where
     I: Iterator<Item = BigUint>,
 {
-    pub fn parse(iter: I) -> eyre::Result<(StateDiff, usize)> {
+    pub fn parse(iter: I, unpacker: PackConst) -> eyre::Result<(StateDiff, usize)> {
         let mut parser = Self {
             current: iter,
-            pack_const: Default::default(),
+            pack_const: unpacker,
         };
         let contract_updates = parser.parse_contract_updates()?;
         let class_declarations = parser.parse_class_declarations()?;

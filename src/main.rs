@@ -8,7 +8,7 @@ use alloy::{
 use clap::Parser;
 use eyre::{ContextCompat, anyhow};
 use num_bigint::BigUint;
-use num_traits::Num;
+use num_traits::{Num, ToPrimitive};
 use serde::Deserialize;
 use tokio::{
     task,
@@ -25,6 +25,9 @@ use starknet_scrape::{
     config::{Cli, Config},
     decomp::Decompressor,
     eth::StarknetCore::LogStateUpdate,
+    packing::{
+        v0_13_1::make_pack_const as make_pack_const1, v0_13_3::make_pack_const as make_pack_const3,
+    },
     parser::StateUpdateParser,
     transform::Transformer,
 };
@@ -53,15 +56,16 @@ fn start_logger(default_level: LevelFilter) {
         .init();
 }
 
-fn parse_local(cache_dir: &PathBuf) -> eyre::Result<()> {
+fn parse_local(cache_dir: &PathBuf, dump: bool) -> eyre::Result<()> {
     let cache_dir = fs::canonicalize(cache_dir)?;
     let seq_mask = cache_dir.join("*.seq");
     for raw_entry in glob::glob(seq_mask.to_str().context("invalid cache dir")?)? {
-        let entry = raw_entry?;
-        let file = fs::File::open(entry)?;
+        let mut entry = raw_entry?;
+        let file = fs::File::open(&entry)?;
         // it isn't strictly necessary to load the file first, but it
-        // does separate input from parsing errors; also, the next
-        // (and primary) caller will have the data in memory...
+        // does separate input from parsing errors; also, the other
+        // (and primary) caller of uncond_parse has the data in
+        // memory...
         let mut elements = Vec::new();
         for res in BufReader::new(file).lines() {
             let ln = res?;
@@ -74,8 +78,55 @@ fn parse_local(cache_dir: &PathBuf) -> eyre::Result<()> {
             elements.push(el);
         }
 
-        let (unc, tail_size) = Decompressor::decompress(elements.into_iter())?;
-        tracing::debug!("{} zeroes after decompressed sequence of {} words", tail_size, unc.len());
+        let cond_target = if dump {
+            entry.set_extension("unc");
+            Some(entry)
+        } else {
+            None
+        };
+        uncond_parse(elements, cond_target)?;
+    }
+
+    Ok(())
+}
+
+fn uncond_parse(seq: Vec<BigUint>, dump_target: Option<PathBuf>) -> eyre::Result<()> {
+    if seq.len() == 0 {
+        return Err(anyhow!("empty sequence"));
+    }
+
+    // This isn't really a _guaranteed_ check for the compressed
+    // format, but the update would have to be pretty much empty to
+    // have all high header bits clear... Maybe we should lock the
+    // format change the first time we encounter it?
+    let (seq, unpacker) = if seq[0].to_usize().is_some() {
+        (seq, make_pack_const1())
+    } else {
+        let (unc, tail_size) = Decompressor::decompress(seq.into_iter())?;
+        tracing::debug!(
+            "{} zeroes after decompressed sequence of {} words",
+            tail_size,
+            unc.len()
+        );
+
+        if let Some(target) = dump_target {
+            uncond_dump(&unc, &target)?;
+        }
+
+        (unc, make_pack_const3())
+    };
+
+    let (_state_diff, tail_size) = StateUpdateParser::parse(seq.into_iter(), unpacker)?;
+    tracing::debug!("{} zeroes after parsed blob", tail_size);
+    Ok(())
+}
+
+fn uncond_dump(seq: &Vec<BigUint>, target: &PathBuf) -> eyre::Result<()> {
+    tracing::debug!("dumping {:?}...", target);
+    let file = fs::File::create(target)?;
+    let mut writer = LineWriter::new(file);
+    for el in seq.iter() {
+        writeln!(writer, "{:#x}", el)?;
     }
 
     Ok(())
@@ -161,10 +212,7 @@ where
                         seq.append(&mut transformed);
                     }
                     self.dumper.cond_dump(&seq)?;
-                    if self.cli.parse {
-                        let (_state_diff, tail_size) = StateUpdateParser::parse(seq.into_iter())?;
-                        tracing::debug!("{} zeroes after parsed blob", tail_size);
-                    }
+                    self.cond_parse(seq)?;
                 } else {
                     // this would in fact be ideal, but doesn't happen in
                     // practice...
@@ -181,6 +229,16 @@ where
 
         Ok(())
     }
+
+    fn cond_parse(&mut self, seq: Vec<BigUint>) -> eyre::Result<()> {
+        if self.cli.parse {
+            // dumping uncompressed sequences isn't supported while
+            // fetching because pruning them isn't supported
+            uncond_parse(seq, None)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[tokio::main]
@@ -194,7 +252,7 @@ async fn main() -> eyre::Result<()> {
     fs::create_dir_all(&config.cache_dir)?;
 
     if cli.parse_local {
-        parse_local(&config.cache_dir)?;
+        parse_local(&config.cache_dir, cli.dump)?;
     }
 
     if cli.no_connect {
@@ -268,24 +326,23 @@ impl Dumper {
         Ok(())
     }
 
+    pub fn make_dump_target(&self, ext: &str) -> eyre::Result<PathBuf> {
+        let block_no = self
+            .cur_block_no
+            .ok_or_else(|| anyhow!("internal error: Dumper.cur_block_no not set"))?;
+        let sub_block = if self.cur_block_repeat > 0 {
+            format!("-{}", self.cur_block_repeat)
+        } else {
+            String::new()
+        };
+        let name = format!("{}{}.{}", block_no, sub_block, ext);
+        Ok(self.cache_dir.join(name))
+    }
+
     pub fn cond_dump(&mut self, seq: &Vec<BigUint>) -> eyre::Result<()> {
         if self.dump {
-            let block_no = self
-                .cur_block_no
-                .ok_or_else(|| anyhow!("internal error: Dumper.cur_block_no not set"))?;
-            let sub_block = if self.cur_block_repeat > 0 {
-                format!("-{}", self.cur_block_repeat)
-            } else {
-                String::new()
-            };
-            let seq_name = format!("{}{}.seq", block_no, sub_block);
-            let seq_path = self.cache_dir.join(seq_name);
-            tracing::debug!("dumping {:?}...", seq_path);
-            let seq_file = fs::File::create(&seq_path)?;
-            let mut writer = LineWriter::new(seq_file);
-            for el in seq.iter() {
-                writeln!(writer, "{:#x}", el)?;
-            }
+            let seq_path = self.make_dump_target("seq")?;
+            uncond_dump(seq, &seq_path)?;
 
             if self.prune {
                 if let Some(doomed) = &self.doomed {
