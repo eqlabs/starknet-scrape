@@ -77,12 +77,20 @@ fn get_n_elms_per_felt(elm_bound: usize) -> usize {
     MAX_N_BITS_PER_FELT / (n_bits_per_elm as usize)
 }
 
-fn extend_with_repeats(src_and_dst: &mut Vec<BigUint>, indices: &Vec<BigUint>) {
+fn extend_with_repeats(src_and_dst: &mut Vec<BigUint>, indices: &Vec<BigUint>) -> eyre::Result<()> {
+    let n_unique_values = src_and_dst.len();
     for big_idx in indices.iter() {
-        // caller ensures indices are actually indices, i.e. small enough
+        // caller ensures indices are actually indices, i.e. small enough...
         let idx = big_idx.to_usize().unwrap();
+        // ...but not necessarily within bounds
+        if idx >= n_unique_values {
+            return Err(anyhow!("index {} out of bounds", idx));
+        }
+
         src_and_dst.push(src_and_dst[idx].clone());
     }
+
+    Ok(())
 }
 
 // from sequencer
@@ -131,7 +139,7 @@ where
 
         decompressor.unpack_repeating_values(&mut all_values)?;
         let bucket_index_per_elm = decompressor.unpack_bucket_index_per_elm()?;
-        let data = decompressor.reconstruct_data(&all_values, &bucket_index_per_elm);
+        let data = decompressor.reconstruct_data(&all_values, &bucket_index_per_elm)?;
         let n = decompressor.check_zero_tail()?;
         Ok((data, n))
     }
@@ -158,8 +166,7 @@ where
 
     fn unpack_repeating_values(&mut self, src_and_dst: &mut Vec<BigUint>) -> eyre::Result<()> {
         let pointers = self.unpack_repeating_value_pointers(src_and_dst.len())?;
-        extend_with_repeats(src_and_dst, &pointers);
-        Ok(())
+        extend_with_repeats(src_and_dst, &pointers)
     }
 
     fn unpack_repeating_value_pointers(
@@ -209,7 +216,7 @@ where
         &mut self,
         all_values: &Vec<BigUint>,
         bucket_index_per_elm: &Vec<BigUint>,
-    ) -> Vec<BigUint> {
+    ) -> eyre::Result<Vec<BigUint>> {
         // input includes repeated values count but that's just a
         // placeholder - the offset after the last segment (AKA the
         // total count) is neither needed nor included in
@@ -218,15 +225,27 @@ where
         let mut data = Vec::new();
         for bucket_index in bucket_index_per_elm.iter() {
             // unpack_bucket_index_per_elm ensures indices are
-            // actually indices, i.e. small enough
+            // actually indices, i.e. small enough...
             let idx = bucket_index.to_usize().unwrap();
+            // ...but the highest index is invalid
+            if idx >= 7 {
+                return Err(anyhow!("invalid bucket 7"));
+            }
+
             let offset = &mut offset_trackers[idx];
             let val = &all_values[*offset];
             *offset += 1;
             data.push(val.clone());
         }
 
-        data
+        let mut expected_final = get_bucket_offsets(&self.sizes[1..=7]);
+        expected_final.remove(0);
+        expected_final.push(self.sizes[0]);
+        if offset_trackers != expected_final {
+            return Err(anyhow!("offset tracers are off"));
+        }
+
+        Ok(data)
     }
 
     fn unpack_felts(
