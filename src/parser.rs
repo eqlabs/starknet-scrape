@@ -2,6 +2,8 @@ use eyre::{ContextCompat, WrapErr, anyhow};
 use num_bigint::BigUint;
 use num_traits::Zero;
 
+use std::io::Write;
+
 use crate::blob_util::parse_usize;
 use crate::packing::PackConst;
 
@@ -34,16 +36,22 @@ pub struct StateDiff {
 pub struct StateUpdateParser<I> {
     pub current: I,
     pub pack_const: PackConst,
+    pub anno_dump: Box<dyn Write>,
 }
 
 impl<I> StateUpdateParser<I>
 where
     I: Iterator<Item = BigUint>,
 {
-    pub fn parse(iter: I, unpacker: PackConst) -> eyre::Result<(StateDiff, usize)> {
+    pub fn parse(
+        iter: I,
+        unpacker: PackConst,
+        anno_dump: Box<dyn Write>,
+    ) -> eyre::Result<(StateDiff, usize)> {
         let mut parser = Self {
             current: iter,
             pack_const: unpacker,
+            anno_dump,
         };
         let contract_updates = parser.parse_contract_updates()?;
         let class_declarations = parser.parse_class_declarations()?;
@@ -62,6 +70,7 @@ where
             .current
             .next()
             .context("Missing number of contract updates")?;
+        writeln!(self.anno_dump, "{}", raw_num_contracts)?;
         let num_contracts =
             parse_usize(raw_num_contracts).context("Parsing number of contract updates")?;
         (0..num_contracts)
@@ -74,6 +83,7 @@ where
 
     fn parse_contract_update(&mut self) -> eyre::Result<ContractUpdate> {
         let address = self.current.next().context("Missing contract address")?;
+        writeln!(self.anno_dump, "a: {:#x}", address)?;
         if address.is_zero() {
             // majin-blob has a break on this condition, but hopefully
             // it doesn't happen on correct data...
@@ -84,9 +94,15 @@ where
             .current
             .next()
             .context("Missing contract packed data")?;
-        let (class_flag, nonce, update_count) = self.pack_const.unpack_contract_update(packed)?;
+        let (class_flag, nonce, update_count) = self.pack_const.unpack_contract_update(&packed)?;
+        writeln!(
+            self.anno_dump,
+            "{:#x} -> {}, {}",
+            packed, update_count, class_flag as i32
+        )?;
         let new_class_hash = if class_flag {
             let hash = self.current.next().context("Missing new class hash")?;
+            writeln!(self.anno_dump, "h: {:#x}", hash)?;
             Some(hash)
         } else {
             None
@@ -109,7 +125,9 @@ where
 
     fn parse_storage_update(&mut self) -> eyre::Result<StorageUpdate> {
         let key = self.current.next().context("Missing storage address")?;
+        writeln!(self.anno_dump, "k: {:#x}", key)?;
         let value = self.current.next().context("Missing storage value")?;
+        writeln!(self.anno_dump, "v: {:#x}", value)?;
         Ok(StorageUpdate { key, value })
     }
 
@@ -118,6 +136,7 @@ where
             .current
             .next()
             .context("Missing number of class declarations")?;
+        writeln!(self.anno_dump, "{}", raw_num_decls)?;
         let num_decls =
             parse_usize(raw_num_decls).context("Parsing number of class declarations")?;
         (0..num_decls)

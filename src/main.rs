@@ -109,14 +109,22 @@ fn uncond_parse(seq: Vec<BigUint>, dump_target: Option<PathBuf>) -> eyre::Result
             unc.len()
         );
 
-        if let Some(target) = dump_target {
-            uncond_dump(&unc, &target)?;
+        if let Some(ref target) = dump_target {
+            uncond_dump(&unc, target)?;
         }
 
         (unc, make_pack_const3())
     };
 
-    let (_state_diff, tail_size) = StateUpdateParser::parse(seq.into_iter(), unpacker)?;
+    let anno_dump: Box<dyn Write> = if let Some(mut target) = dump_target {
+        target.set_extension("anno");
+        let file = fs::File::create(target)?;
+        Box::new(LineWriter::new(file))
+    } else {
+        Box::new(std::io::empty())
+    };
+
+    let (_state_diff, tail_size) = StateUpdateParser::parse(seq.into_iter(), unpacker, anno_dump)?;
     tracing::debug!("{} zeroes after parsed blob", tail_size);
     Ok(())
 }
@@ -198,7 +206,11 @@ where
             let cur_block_no = log.block_number.context("block not set")?;
             self.dumper.set_block_no(cur_block_no)?;
             let decoded_log = LogStateUpdate::decode_log(&log.inner, true)?;
-            tracing::debug!("processing Ethereum block {} (Starknet {})...", cur_block_no, decoded_log.data.blockNumber);
+            tracing::debug!(
+                "processing Ethereum block {} (Starknet {})...",
+                cur_block_no,
+                decoded_log.data.blockNumber
+            );
             let tx_hash = log.transaction_hash.context("log has no tx hash")?;
             let opt_outer = self.provider.get_transaction_by_hash(tx_hash).await?;
             let outer = opt_outer.context("logged tx not found")?;

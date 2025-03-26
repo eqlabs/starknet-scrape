@@ -14,18 +14,14 @@ pub struct PackConst {
 }
 
 impl PackConst {
-    pub fn unpack_contract_update(&self, packed: BigUint) -> eyre::Result<(bool, u64, u64)> {
-        let top = self.top_mask.clone().bitand(packed.clone());
+    pub fn unpack_contract_update(&self, packed: &BigUint) -> eyre::Result<(bool, u64, u64)> {
+        let top = self.top_mask.clone().bitand(packed);
         if !top.is_zero() {
             return Err(anyhow!("Extra high bits"));
         }
 
-        let class_flag_bit = !self
-            .class_flag_mask
-            .clone()
-            .bitand(packed.clone())
-            .is_zero();
-        let nonce_high = self.nonce_mask.clone().bitand(packed.clone());
+        let class_flag_bit = !self.class_flag_mask.clone().bitand(packed).is_zero();
+        let nonce_high = self.nonce_mask.clone().bitand(packed);
         let nonce = nonce_high.shr(self.nonce_shift);
         let update_count_high = self.update_count_mask.clone().bitand(packed);
         let update_count = update_count_high.shr(self.update_count_shift);
@@ -72,7 +68,7 @@ pub mod v0_13_1 {
             let pack_const = make_pack_const();
             let u = BigUint::from_str("18446744073709551617").unwrap();
             let (class_flag_bit, nonce, update_count) =
-                pack_const.unpack_contract_update(u).unwrap();
+                pack_const.unpack_contract_update(&u).unwrap();
             assert!(!class_flag_bit);
             assert_eq!(nonce, 1);
             assert_eq!(update_count, 1);
