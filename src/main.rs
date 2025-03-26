@@ -197,7 +197,8 @@ where
         for log in logs {
             let cur_block_no = log.block_number.context("block not set")?;
             self.dumper.set_block_no(cur_block_no)?;
-            tracing::debug!("processing eth block {}...", cur_block_no);
+            let decoded_log = LogStateUpdate::decode_log(&log.inner, true)?;
+            tracing::debug!("processing Ethereum block {} (Starknet {})...", cur_block_no, decoded_log.data.blockNumber);
             let tx_hash = log.transaction_hash.context("log has no tx hash")?;
             let opt_outer = self.provider.get_transaction_by_hash(tx_hash).await?;
             let outer = opt_outer.context("logged tx not found")?;
