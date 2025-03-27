@@ -53,7 +53,7 @@ async fn main() -> eyre::Result<()> {
 
         starknet_block_no += 1;
     }
-    
+
     let mut addresses = result.keys().collect::<Vec<_>>();
     addresses.sort_by(|a, b| {
         let al = a.len();
@@ -75,21 +75,18 @@ async fn main() -> eyre::Result<()> {
 
 pub mod jsu {
     use serde::Deserialize;
-    
-    #[derive(Deserialize)]
-    #[derive(Debug)]
+
+    #[derive(Deserialize, Debug)]
     pub struct StateUpdate {
         pub state_diff: StateDiff,
     }
 
-    #[derive(Deserialize)]
-    #[derive(Debug)]
+    #[derive(Deserialize, Debug)]
     pub struct StateDiff {
         pub nonces: Vec<NonceDesc>,
     }
 
-    #[derive(Deserialize)]
-    #[derive(Debug)]
+    #[derive(Deserialize, Debug)]
     pub struct NonceDesc {
         pub contract_address: String,
         pub nonce: String,

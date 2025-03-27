@@ -97,8 +97,8 @@ where
         let (class_flag, nonce, update_count) = self.pack_const.unpack_contract_update(&packed)?;
         writeln!(
             self.anno_dump,
-            "{:#x} -> {}, {}",
-            packed, update_count, class_flag as i32
+            "{:#b} -> n: {}, c: {}, f: {}",
+            packed, nonce, update_count, class_flag as i32
         )?;
         let new_class_hash = if class_flag {
             let hash = self.current.next().context("Missing new class hash")?;
