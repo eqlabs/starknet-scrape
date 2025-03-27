@@ -56,16 +56,13 @@ fn start_logger(default_level: LevelFilter) {
         .init();
 }
 
-fn parse_local(cache_dir: &PathBuf, dump: bool) -> eyre::Result<()> {
+fn parse_local(cache_dir: &PathBuf, annotate: bool, dump: bool) -> eyre::Result<()> {
     let cache_dir = fs::canonicalize(cache_dir)?;
-    let seq_mask = cache_dir.join("*.seq");
+    let mask = if annotate { "*.unc" } else { "*.seq" };
+    let seq_mask = cache_dir.join(mask);
     for raw_entry in glob::glob(seq_mask.to_str().context("invalid cache dir")?)? {
         let mut entry = raw_entry?;
         let file = fs::File::open(&entry)?;
-        // it isn't strictly necessary to load the file first, but it
-        // does separate input from parsing errors; also, the other
-        // (and primary) caller of uncond_parse has the data in
-        // memory...
         let mut elements = Vec::new();
         for res in BufReader::new(file).lines() {
             let ln = res?;
@@ -84,36 +81,46 @@ fn parse_local(cache_dir: &PathBuf, dump: bool) -> eyre::Result<()> {
         } else {
             None
         };
-        uncond_parse(elements, cond_target)?;
+        do_parse(elements, annotate, cond_target)?;
     }
 
     Ok(())
 }
 
-fn uncond_parse(seq: Vec<BigUint>, dump_target: Option<PathBuf>) -> eyre::Result<()> {
+fn do_parse(
+    seq: Vec<BigUint>,
+    uncompressed: bool,
+    dump_target: Option<PathBuf>,
+) -> eyre::Result<()> {
     if seq.len() == 0 {
         return Err(anyhow!("empty sequence"));
     }
 
-    // This isn't really a _guaranteed_ check for the compressed
-    // format, but the update would have to be pretty much empty to
-    // have all high header bits clear... Maybe we should lock the
-    // format change the first time we encounter it?
-    let (seq, unpacker) = if seq[0].to_usize().is_some() {
-        (seq, make_pack_const1())
+    // uncompressed means the sequence had been compressed previously,
+    // i.e. has the v0_13_3 format
+    let (seq, unpacker) = if uncompressed {
+        (seq, make_pack_const3())
     } else {
-        let (unc, tail_size) = Decompressor::decompress(seq.into_iter())?;
-        tracing::debug!(
-            "{} zeroes after decompressed sequence of {} words",
-            tail_size,
-            unc.len()
-        );
+        // This isn't really a _guaranteed_ check for the compressed
+        // format, but the update would have to be pretty much empty
+        // to have all high header bits clear... Maybe we should lock
+        // the format change the first time we encounter it?
+        if seq[0].to_usize().is_some() {
+            (seq, make_pack_const1())
+        } else {
+            let (unc, tail_size) = Decompressor::decompress(seq.into_iter())?;
+            tracing::debug!(
+                "{} zeroes after decompressed sequence of {} words",
+                tail_size,
+                unc.len()
+            );
 
-        if let Some(ref target) = dump_target {
-            uncond_dump(&unc, target)?;
+            if let Some(ref target) = dump_target {
+                uncond_dump(&unc, target)?;
+            }
+
+            (unc, make_pack_const3())
         }
-
-        (unc, make_pack_const3())
     };
 
     let anno_dump: Box<dyn Write> = if let Some(mut target) = dump_target {
@@ -247,7 +254,7 @@ where
         if self.cli.parse {
             // dumping uncompressed sequences isn't supported while
             // fetching because pruning them isn't supported
-            uncond_parse(seq, None)
+            do_parse(seq, false, None)
         } else {
             Ok(())
         }
@@ -258,14 +265,23 @@ where
 async fn main() -> eyre::Result<()> {
     start_logger(LevelFilter::INFO);
 
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
     let raw_config = fs::read_to_string(&cli.config_file)?;
     let config: Config = toml::from_str(&raw_config)?;
+
+    if cli.annotate_only && (!cli.parse_local || !cli.dump || !cli.no_connect) {
+        tracing::info!(
+            "command-line option annotate-only implies options parse-local, dump and no-connect"
+        );
+        cli.parse_local = true;
+        cli.dump = true;
+        cli.no_connect = true;
+    }
 
     fs::create_dir_all(&config.cache_dir)?;
 
     if cli.parse_local {
-        parse_local(&config.cache_dir, cli.dump)?;
+        parse_local(&config.cache_dir, cli.annotate_only, cli.dump)?;
     }
 
     if cli.no_connect {

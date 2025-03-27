@@ -15,6 +15,8 @@ pub struct Cli {
     pub config_file: PathBuf,
     #[arg(long, short = 'l', default_value = "false")]
     pub parse_local: bool,
+    #[arg(long, short = 'a', default_value = "false")]
+    pub annotate_only: bool,
     #[arg(long, short = '0', default_value = "false")]
     pub no_connect: bool,
     #[arg(long, short = '1', default_value = "false")]
