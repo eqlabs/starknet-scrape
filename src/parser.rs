@@ -90,6 +90,11 @@ where
             return Err(anyhow!("Zero address"));
         }
 
+        if address == self.pack_const.two {
+            // should be switching to stateful compression here...
+            return Err(anyhow!("0x2 contract present"));
+        }
+
         let packed = self
             .current
             .next()
