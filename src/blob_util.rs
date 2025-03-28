@@ -26,7 +26,7 @@ pub fn parse_str_to_blob_data(contents: &str) -> eyre::Result<Vec<BigUint>> {
     Ok(data)
 }
 
-pub fn parse_usize(value: BigUint) -> eyre::Result<usize> {
+pub fn parse_usize(value: &BigUint) -> eyre::Result<usize> {
     value
         .to_usize()
         .ok_or_else(|| anyhow!("Value exceeds usize::MAX"))

@@ -152,15 +152,14 @@ pub mod v0_13_3 {
         #[case::first(46, (false, 0, 11))]
         #[case::zero_storage_updates(3074, (false, 3, 0))]
         #[case::long(0x5b8, (false, 0, 366))]
-        fn wild_example(#[case]input: u64, #[case]expected: (bool, u64, u64)) {
+        fn wild_example(#[case] input: u64, #[case] expected: (bool, u64, u64)) {
             use num_bigint::ToBigUint;
 
             use super::make_pack_const;
 
             let pack_const = make_pack_const();
             let u = input.to_biguint().unwrap();
-            let (class_flag, nonce, update_count) =
-                pack_const.unpack_contract_update(&u).unwrap();
+            let (class_flag, nonce, update_count) = pack_const.unpack_contract_update(&u).unwrap();
             assert_eq!(expected.0, class_flag);
             assert_eq!(expected.1, nonce);
             assert_eq!(expected.2, update_count);

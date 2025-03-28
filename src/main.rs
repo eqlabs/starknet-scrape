@@ -11,15 +11,18 @@ use num_bigint::BigUint;
 use num_traits::{Num, ToPrimitive};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
+use std::cell::RefCell;
 use std::fs;
 use std::io::{BufRead, BufReader, LineWriter, Write};
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use starknet_scrape::{
     config::{Cli, Config},
-    download::Downloader,
     decomp::Decompressor,
+    download::Downloader,
     eth::StarknetCore::LogStateUpdate,
+    lookup::Lookup,
     packing::{
         v0_13_1::make_pack_const as make_pack_const1, v0_13_3::make_pack_const as make_pack_const3,
     },
@@ -45,7 +48,12 @@ fn start_logger(default_level: LevelFilter) {
         .init();
 }
 
-fn parse_local(cache_dir: &PathBuf, annotate: bool, dump: bool) -> eyre::Result<()> {
+fn parse_local(
+    lookup: Rc<RefCell<Lookup>>,
+    cache_dir: &PathBuf,
+    annotate: bool,
+    dump: bool,
+) -> eyre::Result<()> {
     let cache_dir = fs::canonicalize(cache_dir)?;
     let mask = if annotate { "*.unc" } else { "*.seq" };
     let seq_mask = cache_dir.join(mask);
@@ -70,13 +78,14 @@ fn parse_local(cache_dir: &PathBuf, annotate: bool, dump: bool) -> eyre::Result<
         } else {
             None
         };
-        do_parse(elements, annotate, cond_target)?;
+        do_parse(lookup.clone(), elements, annotate, cond_target)?;
     }
 
     Ok(())
 }
 
 fn do_parse(
+    lookup: Rc<RefCell<Lookup>>,
     seq: Vec<BigUint>,
     uncompressed: bool,
     dump_target: Option<PathBuf>,
@@ -120,7 +129,8 @@ fn do_parse(
         Box::new(std::io::empty())
     };
 
-    let (_state_diff, tail_size) = StateUpdateParser::parse(seq.into_iter(), unpacker, anno_dump)?;
+    let (_state_diff, tail_size) =
+        StateUpdateParser::parse(seq.into_iter(), unpacker, lookup, anno_dump)?;
     tracing::debug!("{} zeroes after parsed blob", tail_size);
     Ok(())
 }
@@ -142,13 +152,19 @@ struct App<P> {
     filter_base: Filter,
     downloader: Downloader,
     dumper: Dumper,
+    lookup: Rc<RefCell<Lookup>>,
 }
 
 impl<P> App<P>
 where
     P: Provider,
 {
-    pub fn new(cli: Cli, config: Config, provider: P) -> eyre::Result<Self> {
+    pub fn new(
+        cli: Cli,
+        config: Config,
+        provider: P,
+        lookup: Rc<RefCell<Lookup>>,
+    ) -> eyre::Result<Self> {
         let cache_dir = fs::canonicalize(&config.cache_dir)?;
 
         let mut headers = reqwest::header::HeaderMap::new();
@@ -180,6 +196,7 @@ where
             filter_base,
             downloader,
             dumper,
+            lookup,
         })
     }
 
@@ -243,7 +260,7 @@ where
         if self.cli.parse {
             // dumping uncompressed sequences isn't supported while
             // fetching because pruning them isn't supported
-            do_parse(seq, false, None)
+            do_parse(self.lookup.clone(), seq, false, None)
         } else {
             Ok(())
         }
@@ -268,9 +285,15 @@ async fn main() -> eyre::Result<()> {
     }
 
     fs::create_dir_all(&config.cache_dir)?;
+    let lookup = Rc::new(RefCell::new(Lookup::new()));
 
     if cli.parse_local {
-        parse_local(&config.cache_dir, cli.annotate_only, cli.dump)?;
+        parse_local(
+            lookup.clone(),
+            &config.cache_dir,
+            cli.annotate_only,
+            cli.dump,
+        )?;
     }
 
     if cli.no_connect {
@@ -285,7 +308,7 @@ async fn main() -> eyre::Result<()> {
     let single_shot = cli.single_shot;
     let mut from_block = cli.from_block.get();
     let mut to_block = from_block + block_count - 1;
-    let mut app = App::new(cli, config, provider)?;
+    let mut app = App::new(cli, config, provider, lookup.clone())?;
     loop {
         app.cycle(from_block, to_block).await?;
         if single_shot {

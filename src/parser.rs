@@ -2,9 +2,12 @@ use eyre::{ContextCompat, WrapErr, anyhow};
 use num_bigint::BigUint;
 use num_traits::Zero;
 
+use std::cell::RefCell;
 use std::io::Write;
+use std::rc::Rc;
 
 use crate::blob_util::parse_usize;
+use crate::lookup::Lookup;
 use crate::packing::PackConst;
 
 #[derive(Debug)]
@@ -33,10 +36,18 @@ pub struct StateDiff {
     pub class_declarations: Vec<ClassDeclaration>,
 }
 
+enum LookupUsageState {
+    Off,
+    Expand,
+    On,
+}
+
 pub struct StateUpdateParser<I> {
-    pub current: I,
-    pub pack_const: PackConst,
-    pub anno_dump: Box<dyn Write>,
+    current: I,
+    lookup_usage_state: LookupUsageState,
+    lookup: Rc<RefCell<Lookup>>,
+    pack_const: PackConst,
+    anno_dump: Box<dyn Write>,
 }
 
 impl<I> StateUpdateParser<I>
@@ -46,10 +57,13 @@ where
     pub fn parse(
         iter: I,
         unpacker: PackConst,
+        lookup: Rc<RefCell<Lookup>>,
         anno_dump: Box<dyn Write>,
     ) -> eyre::Result<(StateDiff, usize)> {
         let mut parser = Self {
             current: iter,
+            lookup_usage_state: LookupUsageState::Off,
+            lookup,
             pack_const: unpacker,
             anno_dump,
         };
@@ -72,7 +86,7 @@ where
             .context("Missing number of contract updates")?;
         writeln!(self.anno_dump, "{}", raw_num_contracts)?;
         let num_contracts =
-            parse_usize(raw_num_contracts).context("Parsing number of contract updates")?;
+            parse_usize(&raw_num_contracts).context("Parsing number of contract updates")?;
         (0..num_contracts)
             .map(|i| {
                 self.parse_contract_update()
@@ -90,10 +104,38 @@ where
             return Err(anyhow!("Zero address"));
         }
 
-        if address == self.pack_const.two {
-            // should be switching to stateful compression here...
-            return Err(anyhow!("0x2 contract present"));
-        }
+        let addr = match self.lookup_usage_state {
+            LookupUsageState::Off => {
+                if address == self.pack_const.two {
+                    // switching to stateful compression
+                    self.lookup_usage_state = LookupUsageState::Expand;
+                    address
+                } else if self.lookup.borrow().is_on() && (address > self.pack_const.two) {
+                    // even if a statefully-compressed block didn't
+                    // change 0x2's storage (and therefore its state
+                    // diff doesn't contain the 0x2 address), it
+                    // should still decompress its repeated storage
+                    // keys and addresses (including this one)
+                    let lookup = self.lookup.borrow();
+                    let index = parse_usize(&address).context("Casting compressed address")?;
+                    let addr = lookup.get(index)?;
+                    self.lookup_usage_state = LookupUsageState::On;
+                    addr
+                } else {
+                    address
+                }
+            }
+            LookupUsageState::Expand => {
+                return Err(anyhow!(
+                    "contract address encountered in unexpected lookup state"
+                ));
+            }
+            LookupUsageState::On => {
+                let lookup = self.lookup.borrow();
+                let index = parse_usize(&address).context("Casting compressed address")?;
+                lookup.get(index)?
+            }
+        };
 
         let packed = self
             .current
@@ -119,9 +161,17 @@ where
                     .with_context(|| format!("storage update {} of {}", i, update_count))
             })
             .collect::<eyre::Result<Vec<_>>>()?;
+        match self.lookup_usage_state {
+            LookupUsageState::Expand => {
+                let mut lookup = self.lookup.borrow_mut();
+                lookup.expand()?;
+                self.lookup_usage_state = LookupUsageState::On;
+            }
+            _ => (),
+        }
 
         Ok(ContractUpdate {
-            address,
+            address: addr,
             nonce,
             new_class_hash,
             storage_updates,
@@ -129,10 +179,30 @@ where
     }
 
     fn parse_storage_update(&mut self) -> eyre::Result<StorageUpdate> {
-        let key = self.current.next().context("Missing storage address")?;
+        let mut key = self.current.next().context("Missing storage address")?;
         writeln!(self.anno_dump, "k: {:#x}", key)?;
         let value = self.current.next().context("Missing storage value")?;
         writeln!(self.anno_dump, "v: {:#x}", value)?;
+        match self.lookup_usage_state {
+            LookupUsageState::Off => (),
+            LookupUsageState::Expand => {
+                if key.is_zero() {
+                    tracing::debug!("global counter = {}", value);
+                } else {
+                    let mut lookup = self.lookup.borrow_mut();
+                    let index = parse_usize(&value).context("Casting 0x2 value")?;
+                    lookup.record(index, &key)?;
+                }
+            }
+            LookupUsageState::On => {
+                let lookup = self.lookup.borrow();
+                if key >= lookup.global_start_index {
+                    let index = parse_usize(&key).context("Casting compressed key")?;
+                    key = lookup.get(index)?;
+                }
+            }
+        }
+
         Ok(StorageUpdate { key, value })
     }
 
@@ -143,7 +213,7 @@ where
             .context("Missing number of class declarations")?;
         writeln!(self.anno_dump, "{}", raw_num_decls)?;
         let num_decls =
-            parse_usize(raw_num_decls).context("Parsing number of class declarations")?;
+            parse_usize(&raw_num_decls).context("Parsing number of class declarations")?;
         (0..num_decls)
             .map(|i| {
                 self.parse_class_declaration()

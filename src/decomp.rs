@@ -56,7 +56,7 @@ fn unpack_header(packed: BigUint) -> eyre::Result<Vec<usize>> {
     }
 
     let sizes = iter
-        .map(|el| parse_usize(el).expect("HEADER_ELM_N_BITS must fit usize"))
+        .map(|el| parse_usize(&el).expect("HEADER_ELM_N_BITS must fit usize"))
         .collect();
     Ok(sizes)
 }
