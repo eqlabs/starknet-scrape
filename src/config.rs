@@ -9,29 +9,81 @@ pub struct Cli {
     #[arg(
         long,
         value_name = "config.toml",
-        long_help = "Path to config file (must exist).",
+        long_help = "Path to config file (must exist)",
         default_value = "config.toml"
     )]
     pub config_file: PathBuf,
-    #[arg(long, short = 'l', default_value = "false")]
-    pub parse_local: bool,
-    #[arg(long, short = 'a', default_value = "false")]
-    pub annotate_only: bool,
-    #[arg(long, short = '0', default_value = "false")]
-    pub no_connect: bool,
-    #[arg(long, short = '1', default_value = "false")]
-    pub single_shot: bool,
-    #[arg(long, short = 'd', default_value = "false")]
-    pub dump: bool,
-    #[arg(long, short = 'f', value_name = "n", default_value = "19427723")]
+    #[arg(
+        long,
+        short = 'f',
+        value_name = "n",
+        long_help = "First block to search for",
+        default_value = "19427723"
+    )]
     pub from_block: std::num::NonZeroU64,
-    #[arg(long, short = 'c', value_name = "n", default_value = "1")]
+    #[arg(
+        long,
+        short = 'c',
+        value_name = "n",
+        long_help = "Number of blocks to check in one `eth_getLogs` call",
+        default_value = "1"
+    )]
     pub block_count: std::num::NonZeroU64,
-    #[arg(long, short = 'p', default_value = "false")]
+    #[arg(
+        long,
+        short = 'p',
+        long_help = "Actually process downloaded blobs",
+        default_value = "false"
+    )]
     pub parse: bool,
-    #[arg(long, short = 's', default_value = "false")]
+    #[arg(
+        long,
+        short = 'd',
+        long_help = "Dump results of various state update processing stages into the cache directory",
+        default_value = "false"
+    )]
+    pub dump: bool,
+    #[arg(
+        long,
+        short = 'l',
+        long_help = "Before connecting to Ethereum, scan the cache directory for previously-dumped unparsed state updates and parse them",
+        default_value = "false"
+    )]
+    pub parse_local: bool,
+    #[arg(
+        long,
+        short = 'a',
+        long_help = "Instead of connecting to Ethereum, scan the cache directory for previously-dumped uncompressed state updates and parse them, also annotating the data with the parser's interpretation",
+        default_value = "false"
+    )]
+    pub annotate_only: bool,
+    #[arg(
+        long,
+        short = '0',
+        long_help = "Do not connect to Ethereum",
+        default_value = "false"
+    )]
+    pub no_connect: bool,
+    #[arg(
+        long,
+        short = '1',
+        long_help = "Call `eth_getLogs` just once, even if it does return data",
+        default_value = "false"
+    )]
+    pub single_shot: bool,
+    #[arg(
+        long,
+        short = 's',
+        long_help = "Save downloaded blobs into the cache directory before processing them",
+        default_value = "false"
+    )]
     pub save: bool,
-    #[arg(long, short = 'u', default_value = "false")]
+    #[arg(
+        long,
+        short = 'u',
+        long_help = "When saving / dumping data, remove files for already fully-processed updates",
+        default_value = "false"
+    )]
     pub prune: bool,
 }
 
