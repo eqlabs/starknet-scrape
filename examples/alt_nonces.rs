@@ -45,10 +45,7 @@ async fn main() -> eyre::Result<()> {
             )
             .await?;
         for desc in single.state_diff.nonces {
-            result
-                .entry(desc.contract_address)
-                .and_modify(|old| *old = desc.nonce.clone())
-                .or_insert(desc.nonce.clone());
+            result.insert(desc.contract_address, desc.nonce);
         }
 
         starknet_block_no += 1;
