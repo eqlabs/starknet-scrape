@@ -1,4 +1,4 @@
-use eyre::anyhow;
+use eyre::{ContextCompat, anyhow};
 use num_bigint::BigUint;
 
 use std::fs;
@@ -81,7 +81,14 @@ impl Dumper {
 
             if self.prune {
                 if let Some(doomed) = &self.doomed {
-                    fs::remove_file(doomed)?;
+                    let mut path_mask = doomed.clone();
+                    path_mask.set_extension("*");
+                    for raw_entry in
+                        glob::glob(path_mask.to_str().context("invalid cache dir mask")?)?
+                    {
+                        let entry = raw_entry?;
+                        fs::remove_file(entry)?;
+                    }
                 }
 
                 self.doomed = Some(seq_path);

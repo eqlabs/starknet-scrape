@@ -296,13 +296,11 @@ where
 
     fn cond_parse(&mut self, seq: Vec<BigUint>) -> eyre::Result<()> {
         if self.cli.parse {
-            // dumping uncompressed sequences isn't supported while
-            // fetching because pruning them isn't supported
             do_parse(
                 self.lookup.clone(),
                 seq,
                 false,
-                false,
+                self.cli.dump,
                 false,
                 self.cli.json,
                 self.dumper.make_dump_target("unc")?,
