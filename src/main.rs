@@ -1,14 +1,15 @@
 use alloy::{
     consensus::transaction::TxEip4844Variant,
-    primitives::address,
+    primitives::{FixedBytes, address},
     providers::{Provider, ProviderBuilder},
-    rpc::types::Filter,
+    rpc::types::{Filter, Transaction},
     sol_types::SolEvent,
 };
 use clap::Parser;
-use eyre::{ContextCompat, anyhow};
+use eyre::{ContextCompat, WrapErr, anyhow};
 use num_bigint::BigUint;
 use num_traits::{Num, ToPrimitive};
+use tokio::time::{Duration, sleep};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 use std::cell::RefCell;
@@ -28,6 +29,11 @@ use starknet_scrape::{
     },
     parser::StateUpdateParser,
 };
+
+/// `MAX_RETRIES` is the maximum number of retries on failed tx retrieval.
+const MAX_RETRIES: usize = 5;
+/// The interval in seconds to wait before retrying to fetch tx.
+const FAILED_FETCH_RETRY_INTERVAL_S: u64 = 10;
 
 fn start_logger(default_level: LevelFilter) {
     let filter = match EnvFilter::try_from_default_env() {
@@ -206,7 +212,11 @@ where
             .clone()
             .from_block(from_block)
             .to_block(to_block);
-        let logs = self.provider.get_logs(&filter).await?;
+        let logs = self
+            .provider
+            .get_logs(&filter)
+            .await
+            .context("can't get logs")?;
         tracing::info!("got {} log(s)", logs.len());
         if logs.is_empty() {
             // obviously it would be better to increase the range here
@@ -225,8 +235,7 @@ where
                 decoded_log.data.blockNumber
             );
             let tx_hash = log.transaction_hash.context("log has no tx hash")?;
-            let opt_outer = self.provider.get_transaction_by_hash(tx_hash).await?;
-            let outer = opt_outer.context("logged tx not found")?;
+            let outer = self.repeat_get_transaction(&tx_hash).await?;
             if let Some(signed) = outer.inner.as_eip4844() {
                 if let TxEip4844Variant::TxEip4844(tx) = signed.tx() {
                     if tx.blob_versioned_hashes.is_empty() {
@@ -254,6 +263,29 @@ where
         }
 
         Ok(())
+    }
+
+    async fn repeat_get_transaction(
+        &mut self,
+        tx_hash: &FixedBytes<32>,
+    ) -> eyre::Result<Transaction> {
+        for attempt in 1..=MAX_RETRIES {
+            match self.provider.get_transaction_by_hash(*tx_hash).await {
+                Ok(opt_tx) => {
+                    return opt_tx.ok_or_else(|| anyhow!("logged tx {} not found", tx_hash));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "attempt {}: get_transaction_by_hash error: {:?}",
+                        attempt,
+                        e
+                    );
+                    sleep(Duration::from_secs(FAILED_FETCH_RETRY_INTERVAL_S)).await;
+                }
+            }
+        }
+
+        Err(anyhow!("can't get logged tx {}", tx_hash))
     }
 
     fn cond_parse(&mut self, seq: Vec<BigUint>) -> eyre::Result<()> {
@@ -316,7 +348,7 @@ async fn main() -> eyre::Result<()> {
             return Ok(());
         }
 
-        tracing::info!("last processed {}", to_block);
+        tracing::info!("last checked {}", to_block);
         from_block = to_block + 1;
         to_block = from_block + block_count - 1;
     }

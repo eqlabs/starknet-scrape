@@ -59,7 +59,20 @@ impl Downloader {
         for attempt in 1..=MAX_RETRIES {
             match self.client.get(url).send().await {
                 Ok(response) => {
-                    return Ok(response);
+                    let status = response.status();
+                    let status_code = status.as_u16();
+                    // 10x statuses aren't really expected, but just
+                    // in case of a strange server...
+                    if status_code < 200 {
+                        return Err(anyhow!("{} got status {}", url, status));
+                    }
+
+                    if status_code >= 400 {
+                        tracing::warn!("attempt {}: GET error status: {:?}", attempt, status);
+                        sleep(Duration::from_secs(FAILED_FETCH_RETRY_INTERVAL_S)).await;
+                    } else {
+                        return Ok(response);
+                    }
                 }
                 Err(e) => {
                     tracing::warn!("attempt {}: GET error: {:?}", attempt, e);
@@ -78,18 +91,11 @@ impl Downloader {
             hex::encode(blob_hash.as_slice())
         );
         let response = self.repeat_get(&url).await?;
-        let status = response.status();
         let text = response.text().await?;
         let json_response = match serde_json::from_str::<JsonResponse>(&text) {
             Ok(rsp) => rsp,
             Err(e) => {
-                tracing::warn!(
-                    "URL {} got {} with invalid JSON: {} ({:?})",
-                    url,
-                    status,
-                    text,
-                    e
-                );
+                tracing::warn!("URL {} has invalid JSON: {} ({:?})", url, text, e);
                 return Err(e.into());
             }
         };
