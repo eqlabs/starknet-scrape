@@ -2,6 +2,7 @@ pub mod blob_util;
 pub mod config;
 pub mod decomp;
 pub mod download;
+pub mod dump;
 pub mod eth;
 pub mod lookup;
 pub mod packing;
