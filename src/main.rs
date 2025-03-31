@@ -62,18 +62,33 @@ fn convert_cache_file(path: &PathBuf) -> (u64, i32) {
                 Some(pos) => match str::parse::<u64>(&stem[..pos]) {
                     Ok(n) => match str::parse::<i32>(&stem[pos + 1..]) {
                         Ok(r) => (n, r),
-                        Err(_) => (n, -1),
+                        Err(e) => {
+                            tracing::warn!("invalid repeat count in {}: {:?}", stem, e);
+                            (n, -1)
+                        }
                     },
-                    Err(_) => (0, -2),
+                    Err(e) => {
+                        tracing::warn!("invalid repeated block number in {}: {:?}", stem, e);
+                        (0, -2)
+                    }
                 },
                 None => match str::parse::<u64>(stem) {
                     Ok(n) => (n, 0),
-                    Err(_) => (0, -3),
+                    Err(e) => {
+                        tracing::warn!("invalid block number in {}: {:?}", stem, e);
+                        (0, -3)
+                    }
                 },
             },
-            None => (0, -4),
+            None => {
+                tracing::warn!("invalid file name");
+                (0, -4)
+            }
         },
-        None => (0, -5),
+        None => {
+            tracing::warn!("invalid file path");
+            (0, -5)
+        }
     }
 }
 
