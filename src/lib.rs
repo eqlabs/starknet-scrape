@@ -7,4 +7,5 @@ pub mod eth;
 pub mod lookup;
 pub mod packing;
 pub mod parser;
+pub mod state_diff;
 pub mod transform;

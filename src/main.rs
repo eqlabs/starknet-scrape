@@ -79,13 +79,18 @@ fn parse_local(
             elements.push(el);
         }
 
-        let cond_target = if dump {
+        if dump {
             entry.set_extension("unc");
-            Some(entry)
-        } else {
-            None
         };
-        do_parse(lookup.clone(), elements, annotate, cond_target)?;
+        do_parse(
+            lookup.clone(),
+            elements,
+            annotate,
+            dump,
+            dump,
+            !annotate,
+            entry,
+        )?;
     }
 
     Ok(())
@@ -95,11 +100,16 @@ fn do_parse(
     lookup: Rc<RefCell<Lookup>>,
     seq: Vec<BigUint>,
     uncompressed: bool,
-    dump_target: Option<PathBuf>,
+    dump_uncompressed: bool,
+    dump_annotated: bool,
+    save_json: bool,
+    dump_target: PathBuf,
 ) -> eyre::Result<()> {
     if seq.len() == 0 {
         return Err(anyhow!("empty sequence"));
     }
+
+    let mut dump_target = dump_target;
 
     // uncompressed means the sequence had been compressed previously,
     // i.e. has the v0_13_3 format
@@ -120,25 +130,31 @@ fn do_parse(
                 unc.len()
             );
 
-            if let Some(ref target) = dump_target {
-                uncond_dump(&unc, target)?;
+            if dump_uncompressed {
+                uncond_dump(&unc, &dump_target)?;
             }
 
             (unc, make_pack_const3())
         }
     };
 
-    let anno_dump: Box<dyn Write> = if let Some(mut target) = dump_target {
-        target.set_extension("anno");
-        let file = fs::File::create(target)?;
+    let anno_dump: Box<dyn Write> = if dump_annotated {
+        dump_target.set_extension("anno");
+        let file = fs::File::create(&dump_target)?;
         Box::new(LineWriter::new(file))
     } else {
         Box::new(std::io::empty())
     };
 
-    let (_state_diff, tail_size) =
+    let (state_diff, tail_size) =
         StateUpdateParser::parse(seq.into_iter(), unpacker, lookup, anno_dump)?;
     tracing::debug!("{} zeroes after parsed blob", tail_size);
+    if save_json {
+        dump_target.set_extension("json");
+        let j = state_diff.to_json_state_diff();
+        fs::write(dump_target, j.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -282,7 +298,15 @@ where
         if self.cli.parse {
             // dumping uncompressed sequences isn't supported while
             // fetching because pruning them isn't supported
-            do_parse(self.lookup.clone(), seq, false, None)
+            do_parse(
+                self.lookup.clone(),
+                seq,
+                false,
+                false,
+                false,
+                self.cli.json,
+                self.dumper.make_dump_target("unc")?,
+            )
         } else {
             Ok(())
         }
@@ -297,6 +321,10 @@ async fn main() -> eyre::Result<()> {
     let raw_config = fs::read_to_string(&cli.config_file)?;
     let config: Config = toml::from_str(&raw_config)?;
 
+    if cli.json && !cli.parse {
+        tracing::info!("command-line option json implies parse");
+        cli.parse = true;
+    }
     if cli.annotate_only && (!cli.parse_local || !cli.dump || !cli.no_connect) {
         tracing::info!(
             "command-line option annotate-only implies options parse-local, dump and no-connect"

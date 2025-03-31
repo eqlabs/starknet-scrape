@@ -80,6 +80,13 @@ pub struct Cli {
     pub save: bool,
     #[arg(
         long,
+        short = 'j',
+        long_help = "Convert parsed blobs to JSON and save it into the cache directory",
+        default_value = "false"
+    )]
+    pub json: bool,
+    #[arg(
+        long,
         short = 'u',
         long_help = "When saving / dumping data, remove files for already fully-processed updates",
         default_value = "false"

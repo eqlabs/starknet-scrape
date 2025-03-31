@@ -9,32 +9,7 @@ use std::rc::Rc;
 use crate::blob_util::parse_usize;
 use crate::lookup::Lookup;
 use crate::packing::PackConst;
-
-#[derive(Debug)]
-pub struct StorageUpdate {
-    pub key: BigUint,
-    pub value: BigUint,
-}
-
-#[derive(Debug)]
-pub struct ContractUpdate {
-    pub address: BigUint,
-    pub nonce: u64,
-    pub new_class_hash: Option<BigUint>, // Some only if class updated
-    pub storage_updates: Vec<StorageUpdate>,
-}
-
-#[derive(Debug)]
-pub struct ClassDeclaration {
-    pub class_hash: BigUint,
-    pub compiled_class_hash: BigUint,
-}
-
-#[derive(Debug)]
-pub struct StateDiff {
-    pub contract_updates: Vec<ContractUpdate>,
-    pub class_declarations: Vec<ClassDeclaration>,
-}
+use crate::state_diff::{ClassDeclaration, ContractUpdate, StateDiff, StorageUpdate};
 
 enum LookupUsageState {
     Off,

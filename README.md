@@ -34,6 +34,7 @@ Options:
   -0, --no-connect                 Do not connect to Ethereum
   -1, --single-shot                Call `eth_getLogs` just once, even if it does return data
   -s, --save                       Save downloaded blobs into the cache directory before processing them
+  -j, --json                       Convert parsed blobs to JSON and save it into the cache directory
   -u, --prune                      When saving / dumping data, remove files for already fully-processed updates
   -h, --help                       Print help (see more with '--help')
   -V, --version                    Print version
