@@ -55,17 +55,48 @@ fn start_logger(default_level: LevelFilter) {
         .init();
 }
 
+fn convert_cache_file(path: &PathBuf) -> (u64, i32) {
+    match path.file_stem() {
+        Some(os_stem) => match os_stem.to_str() {
+            Some(stem) => match stem.find('-') {
+                Some(pos) => match str::parse::<u64>(&stem[..pos]) {
+                    Ok(n) => match str::parse::<i32>(&stem[pos + 1..]) {
+                        Ok(r) => (n, r),
+                        Err(_) => (n, -1),
+                    },
+                    Err(_) => (0, -2),
+                },
+                None => match str::parse::<u64>(stem) {
+                    Ok(n) => (n, 0),
+                    Err(_) => (0, -3),
+                },
+            },
+            None => (0, -4),
+        },
+        None => (0, -5),
+    }
+}
+
 fn parse_local(
     lookup: Rc<RefCell<Lookup>>,
     cache_dir: &PathBuf,
     annotate: bool,
     dump: bool,
+    save_json: bool,
 ) -> eyre::Result<()> {
     let cache_dir = fs::canonicalize(cache_dir)?;
     let mask = if annotate { "*.unc" } else { "*.seq" };
     let seq_mask = cache_dir.join(mask);
-    for raw_entry in glob::glob(seq_mask.to_str().context("invalid cache dir")?)? {
-        let mut entry = raw_entry?;
+    let seq_mask_str = seq_mask.to_str().context("invalid cache dir")?;
+    let mut entries = glob::glob(seq_mask_str)?.collect::<Result<Vec<_>, _>>()?;
+    // with stateful compression, parsing in chain order is required
+    entries.sort_by(|a, b| {
+        let p = convert_cache_file(a);
+        let q = convert_cache_file(b);
+        p.cmp(&q)
+    });
+
+    for mut entry in entries {
         let file = fs::File::open(&entry)?;
         let mut elements = Vec::new();
         for res in BufReader::new(file).lines() {
@@ -88,7 +119,7 @@ fn parse_local(
             annotate,
             dump,
             dump,
-            !annotate,
+            save_json,
             entry,
         )?;
     }
@@ -296,11 +327,15 @@ where
 
     fn cond_parse(&mut self, seq: Vec<BigUint>) -> eyre::Result<()> {
         if self.cli.parse {
+            // dumping uncompressed sequences isn't supported while
+            // fetching to minimize disk requirements while processing
+            // statefully-compressed sequences (which must be dumped
+            // to allow continuing after restart)
             do_parse(
                 self.lookup.clone(),
                 seq,
                 false,
-                self.cli.dump,
+                false,
                 false,
                 self.cli.json,
                 self.dumper.make_dump_target("unc")?,
@@ -341,6 +376,7 @@ async fn main() -> eyre::Result<()> {
             &config.cache_dir,
             cli.annotate_only,
             cli.dump,
+            cli.json,
         )?;
     }
 
