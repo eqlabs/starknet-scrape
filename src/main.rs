@@ -196,7 +196,15 @@ fn do_parse(
         StateUpdateParser::parse(seq.into_iter(), unpacker, lookup, anno_dump)?;
     tracing::debug!("{} zeroes after parsed blob", tail_size);
     if save_json {
-        dump_target.set_extension("json");
+        if !dump_target.pop() {
+            return Err(anyhow!("can't get cache directory"));
+        }
+
+        let from_seq_no = state_diff.range.from_seq_no.unwrap_or_default();
+        let to_seq_no = state_diff.range.to_seq_no.unwrap_or_default();
+        let name = format!("{}-{}.json", from_seq_no, to_seq_no);
+        dump_target.push(name);
+        tracing::debug!("saving {:?}...", dump_target);
         let j = state_diff.to_json_state_diff();
         fs::write(dump_target, j.to_string())?;
     }

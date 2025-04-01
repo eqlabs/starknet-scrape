@@ -27,10 +27,17 @@ pub struct ClassDeclaration {
     pub compiled_class_hash: BigUint,
 }
 
+#[derive(Debug, Default)]
+pub struct BlockRange {
+    pub from_seq_no: Option<u64>,
+    pub to_seq_no: Option<u64>,
+}
+
 #[derive(Debug)]
 pub struct StateDiff {
     pub contract_updates: Vec<ContractUpdate>,
     pub class_declarations: Vec<ClassDeclaration>,
+    pub range: BlockRange,
 }
 
 // adapted from majin-blob

@@ -1,6 +1,6 @@
 use eyre::{ContextCompat, WrapErr, anyhow};
 use num_bigint::BigUint;
-use num_traits::Zero;
+use num_traits::{ToPrimitive, Zero};
 
 use std::cell::RefCell;
 use std::io::Write;
@@ -9,10 +9,11 @@ use std::rc::Rc;
 use crate::blob_util::parse_usize;
 use crate::lookup::Lookup;
 use crate::packing::PackConst;
-use crate::state_diff::{ClassDeclaration, ContractUpdate, StateDiff, StorageUpdate};
+use crate::state_diff::{BlockRange, ClassDeclaration, ContractUpdate, StateDiff, StorageUpdate};
 
 enum LookupUsageState {
     Off,
+    One,
     Expand,
     On,
 }
@@ -23,6 +24,7 @@ pub struct StateUpdateParser<I> {
     lookup: Rc<RefCell<Lookup>>,
     pack_const: PackConst,
     anno_dump: Box<dyn Write>,
+    range: BlockRange,
 }
 
 impl<I> StateUpdateParser<I>
@@ -41,6 +43,7 @@ where
             lookup,
             pack_const: unpacker,
             anno_dump,
+            range: Default::default(),
         };
         let contract_updates = parser.parse_contract_updates()?;
         let class_declarations = parser.parse_class_declarations()?;
@@ -49,6 +52,7 @@ where
             StateDiff {
                 contract_updates,
                 class_declarations,
+                range: parser.range,
             },
             n,
         ))
@@ -81,6 +85,12 @@ where
 
         let addr = match self.lookup_usage_state {
             LookupUsageState::Off => {
+                if address == self.pack_const.one {
+                    self.lookup_usage_state = LookupUsageState::One;
+                }
+                address
+            }
+            LookupUsageState::One => {
                 if address == self.pack_const.two {
                     // switching to stateful compression
                     self.lookup_usage_state = LookupUsageState::Expand;
@@ -97,12 +107,13 @@ where
                     self.lookup_usage_state = LookupUsageState::On;
                     addr
                 } else {
+                    self.lookup_usage_state = LookupUsageState::Off;
                     address
                 }
             }
             LookupUsageState::Expand => {
                 return Err(anyhow!(
-                    "contract address encountered in unexpected lookup state"
+                    "contract address encountered in unexpected lookup state Expand"
                 ));
             }
             LookupUsageState::On => {
@@ -160,6 +171,25 @@ where
         writeln!(self.anno_dump, "v: {:#x}", value)?;
         match self.lookup_usage_state {
             LookupUsageState::Off => (),
+            LookupUsageState::One => {
+                let seq_no = key.to_u64().context("Casting 0x1 key")?;
+                if let Some(old) = self.range.from_seq_no {
+                    // doesn't happen, b/c the keys are in order, but
+                    // just for completeness...
+                    if seq_no < old {
+                        self.range.from_seq_no = Some(seq_no);
+                    }
+                } else {
+                    self.range.from_seq_no = Some(seq_no);
+                }
+                if let Some(old) = self.range.to_seq_no {
+                    if seq_no > old {
+                        self.range.to_seq_no = Some(seq_no);
+                    }
+                } else {
+                    self.range.to_seq_no = Some(seq_no);
+                }
+            }
             LookupUsageState::Expand => {
                 if key.is_zero() {
                     tracing::debug!("global counter = {}", value);

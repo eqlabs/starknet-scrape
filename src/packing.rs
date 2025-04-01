@@ -16,6 +16,7 @@ pub struct PackConst {
     pub update_count_shift: usize,
     pub short_update_count_mask: BigUint,
     pub short_flag_mask: BigUint,
+    pub one: BigUint,
     pub two: BigUint,
 }
 
@@ -86,6 +87,7 @@ pub mod v0_13_1 {
             update_count_shift: 0,
             short_update_count_mask: BigUint::ZERO, // not used
             short_flag_mask: BigUint::ZERO,         // never matches
+            one,
             two,
         }
     }
@@ -141,8 +143,9 @@ pub mod v0_13_3 {
             // 21282183), which has the second-lowest bit set but no
             // class hash (while the lowest bit is clear & number of
             // updates < 256)
-            class_flag_mask: one,
+            class_flag_mask: one.clone(),
             short_flag_mask: two.clone(),
+            one,
             two,
         }
     }
