@@ -171,21 +171,21 @@ where
             LookupUsageState::Off => (),
             LookupUsageState::One => {
                 let seq_no = key.to_u64().context("Casting 0x1 key")?;
-                if let Some(old) = self.range.from_seq_no {
+                if let Some(old) = self.range.min_seq_no {
                     // doesn't happen, b/c the keys are in order, but
                     // just for completeness...
                     if seq_no < old {
-                        self.range.from_seq_no = Some(seq_no);
+                        self.range.min_seq_no = Some(seq_no);
                     }
                 } else {
-                    self.range.from_seq_no = Some(seq_no);
+                    self.range.min_seq_no = Some(seq_no);
                 }
-                if let Some(old) = self.range.to_seq_no {
+                if let Some(old) = self.range.max_seq_no {
                     if seq_no > old {
-                        self.range.to_seq_no = Some(seq_no);
+                        self.range.max_seq_no = Some(seq_no);
                     }
                 } else {
-                    self.range.to_seq_no = Some(seq_no);
+                    self.range.max_seq_no = Some(seq_no);
                 }
             }
             LookupUsageState::Expand => {

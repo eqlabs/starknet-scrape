@@ -29,8 +29,8 @@ pub struct ClassDeclaration {
 
 #[derive(Debug, Default)]
 pub struct BlockRange {
-    pub from_seq_no: Option<u64>,
-    pub to_seq_no: Option<u64>,
+    pub min_seq_no: Option<u64>,
+    pub max_seq_no: Option<u64>,
 }
 
 #[derive(Debug)]
