@@ -196,30 +196,30 @@ fn do_parse(
 
     let state_diff = StateUpdateParser::parse(seq.into_iter(), unpacker, lookup, anno_dump)?;
     tracing::debug!("{} zeros after parsed blob", state_diff.tail_size);
+
+    // see https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1
+    let to_seq_no = state_diff
+        .range
+        .max_seq_no
+        .map(|n| n + 10)
+        .unwrap_or_default();
+    if let Some(log_seq_no) = seq_no {
+        if log_seq_no != to_seq_no {
+            return Err(anyhow!(
+                "storage updates of contract 0x1 do not match log event calldata"
+            ));
+        }
+    }
     if save_json {
         if !dump_target.pop() {
             return Err(anyhow!("can't get cache directory"));
         }
 
-        // see https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1
         let from_seq_no = state_diff
             .range
             .min_seq_no
             .map(|n| n + 10)
             .unwrap_or_default();
-        let to_seq_no = state_diff
-            .range
-            .max_seq_no
-            .map(|n| n + 10)
-            .unwrap_or_default();
-        if let Some(log_seq_no) = seq_no {
-            if log_seq_no != to_seq_no {
-                return Err(anyhow!(
-                    "storage updates of contract 0x1 do not match event calldata"
-                ));
-            }
-        }
-
         let name = format!("{}-{}.json", from_seq_no, to_seq_no);
         dump_target.push(name);
         let j = state_diff.to_json_state_diff();

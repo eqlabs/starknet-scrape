@@ -172,9 +172,8 @@ where
             LookupUsageState::One => {
                 let seq_no = key.to_u64().context("Casting 0x1 key")?;
                 if let Some(old) = self.range.min_seq_no {
-                    // doesn't happen, b/c the keys are in order, but
-                    // just for completeness...
                     if seq_no < old {
+                        tracing::warn!("0x1 keys not ordered: {} before {}", old, seq_no);
                         self.range.min_seq_no = Some(seq_no);
                     }
                 } else {
