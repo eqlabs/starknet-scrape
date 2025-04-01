@@ -100,7 +100,7 @@ where
                     // should still decompress its repeated storage
                     // keys and addresses (including this one)
                     let lookup = self.lookup.borrow();
-                    let index = parse_usize(&address).context("Casting compressed address")?;
+                    let index = address.to_u64().context("Casting compressed address")?;
                     let addr = lookup.get(index)?;
                     self.lookup_usage_state = LookupUsageState::On;
                     addr
@@ -116,7 +116,7 @@ where
             }
             LookupUsageState::On => {
                 let lookup = self.lookup.borrow();
-                let index = parse_usize(&address).context("Casting compressed address")?;
+                let index = address.to_u64().context("Casting compressed address")?;
                 lookup.get(index)?
             }
         };
@@ -192,14 +192,14 @@ where
                     tracing::debug!("global counter = {}", value);
                 } else {
                     let mut lookup = self.lookup.borrow_mut();
-                    let index = parse_usize(&value).context("Casting 0x2 value")?;
+                    let index = value.to_u64().context("Casting 0x2 value")?;
                     lookup.record(index, &key)?;
                 }
             }
             LookupUsageState::On => {
                 let lookup = self.lookup.borrow();
                 if key >= lookup.global_start_index {
-                    let index = parse_usize(&key).context("Casting compressed key")?;
+                    let index = key.to_u64().context("Casting compressed key")?;
                     key = lookup.get(index)?;
                 }
             }

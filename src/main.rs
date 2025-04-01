@@ -305,13 +305,18 @@ where
         for log in logs {
             let cur_block_no = log.block_number.context("block not set")?;
             self.dumper.set_block_no(cur_block_no)?;
+            {
+                let mut lookup = self.lookup.borrow_mut();
+                lookup.set_block_no(cur_block_no);
+            }
             let decoded_log = LogStateUpdate::decode_log(&log.inner, true)?;
-            let seq_no = decoded_log.data.blockNumber;
+            let raw_seq_no = decoded_log.data.blockNumber;
             tracing::debug!(
                 "processing Ethereum block {} (Starknet {})...",
                 cur_block_no,
-                seq_no
+                raw_seq_no
             );
+            let seq_no = raw_seq_no.try_into()?;
             let tx_hash = log.transaction_hash.context("log has no tx hash")?;
             let outer = self.repeat_get_transaction(&tx_hash).await?;
             if let Some(signed) = outer.inner.as_eip4844() {
@@ -325,7 +330,7 @@ where
                         seq.append(&mut transformed);
                     }
                     self.dumper.cond_dump(&seq)?;
-                    self.cond_parse(seq, seq_no.try_into()?)?;
+                    self.cond_parse(seq, seq_no)?;
                 } else {
                     // this would in fact be ideal, but doesn't happen in
                     // practice...
@@ -410,7 +415,9 @@ async fn main() -> eyre::Result<()> {
     }
 
     fs::create_dir_all(&config.cache_dir)?;
-    let lookup = Rc::new(RefCell::new(Lookup::new()));
+
+    let bare_lookup = Lookup::new(&config.db_file)?;
+    let lookup = Rc::new(RefCell::new(bare_lookup));
 
     if cli.parse_local {
         parse_local(

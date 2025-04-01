@@ -1,6 +1,7 @@
 rpc_url = "https://eth.merkle.io"
 blob_url_base = "https://api.blobscan.com/blobs/"
 cache_dir = "cache"
+db_file = "scraped.db"
 pathfinder_rpc_url = "https://rpc.pathfinder.equilibrium.co/mainnet/rpc/v0_8"
 
 

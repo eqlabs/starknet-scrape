@@ -99,5 +99,6 @@ pub struct Config {
     pub rpc_url: String,
     pub blob_url_base: String,
     pub cache_dir: PathBuf,
+    pub db_file: PathBuf,
     pub pathfinder_rpc_url: String,
 }
