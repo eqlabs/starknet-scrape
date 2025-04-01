@@ -136,6 +136,7 @@ fn parse_local(
             dump,
             save_json,
             entry,
+            None,
         )?;
     }
 
@@ -150,6 +151,7 @@ fn do_parse(
     dump_annotated: bool,
     save_json: bool,
     dump_target: PathBuf,
+    seq_no: Option<u64>,
 ) -> eyre::Result<()> {
     if seq.len() == 0 {
         return Err(anyhow!("empty sequence"));
@@ -200,9 +202,14 @@ fn do_parse(
             return Err(anyhow!("can't get cache directory"));
         }
 
-        let from_seq_no = state_diff.range.from_seq_no.unwrap_or_default();
-        let to_seq_no = state_diff.range.to_seq_no.unwrap_or_default();
-        let name = format!("{}-{}.json", from_seq_no, to_seq_no);
+        let name = if let Some(log_seq_no) = seq_no {
+            format!("upto{}.json", log_seq_no)
+        } else {
+            let from_seq_no = state_diff.range.from_seq_no.unwrap_or_default();
+            let to_seq_no = state_diff.range.to_seq_no.unwrap_or_default();
+            format!("{}-{}.json", from_seq_no, to_seq_no)
+        };
+
         dump_target.push(name);
         tracing::debug!("saving {:?}...", dump_target);
         let j = state_diff.to_json_state_diff();
@@ -289,10 +296,11 @@ where
             let cur_block_no = log.block_number.context("block not set")?;
             self.dumper.set_block_no(cur_block_no)?;
             let decoded_log = LogStateUpdate::decode_log(&log.inner, true)?;
+            let seq_no = decoded_log.data.blockNumber;
             tracing::debug!(
                 "processing Ethereum block {} (Starknet {})...",
                 cur_block_no,
-                decoded_log.data.blockNumber
+                seq_no
             );
             let tx_hash = log.transaction_hash.context("log has no tx hash")?;
             let outer = self.repeat_get_transaction(&tx_hash).await?;
@@ -307,7 +315,7 @@ where
                         seq.append(&mut transformed);
                     }
                     self.dumper.cond_dump(&seq)?;
-                    self.cond_parse(seq)?;
+                    self.cond_parse(seq, seq_no.try_into()?)?;
                 } else {
                     // this would in fact be ideal, but doesn't happen in
                     // practice...
@@ -348,7 +356,7 @@ where
         Err(anyhow!("can't get logged tx {}", tx_hash))
     }
 
-    fn cond_parse(&mut self, seq: Vec<BigUint>) -> eyre::Result<()> {
+    fn cond_parse(&mut self, seq: Vec<BigUint>, seq_no: u64) -> eyre::Result<()> {
         if self.cli.parse {
             // dumping uncompressed sequences isn't supported while
             // fetching to minimize disk requirements while processing
@@ -362,6 +370,7 @@ where
                 false,
                 self.cli.json,
                 self.dumper.make_dump_target("unc")?,
+                Some(seq_no),
             )
         } else {
             Ok(())
