@@ -38,6 +38,7 @@ pub struct StateDiff {
     pub contract_updates: Vec<ContractUpdate>,
     pub class_declarations: Vec<ClassDeclaration>,
     pub range: BlockRange,
+    pub tail_size: usize,
 }
 
 // adapted from majin-blob

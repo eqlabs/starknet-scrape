@@ -173,7 +173,7 @@ fn do_parse(
         } else {
             let (unc, tail_size) = Decompressor::decompress(seq.into_iter())?;
             tracing::debug!(
-                "{} zeroes after decompressed sequence of {} words",
+                "{} zeros after decompressed sequence of {} words",
                 tail_size,
                 unc.len()
             );
@@ -194,24 +194,30 @@ fn do_parse(
         Box::new(std::io::empty())
     };
 
-    let (state_diff, tail_size) =
+    let state_diff =
         StateUpdateParser::parse(seq.into_iter(), unpacker, lookup, anno_dump)?;
-    tracing::debug!("{} zeroes after parsed blob", tail_size);
+    tracing::debug!("{} zeros after parsed blob", state_diff.tail_size);
     if save_json {
         if !dump_target.pop() {
             return Err(anyhow!("can't get cache directory"));
         }
 
+        let from_seq_no = state_diff.range.from_seq_no.unwrap_or_default();
+        let to_seq_no = state_diff.range.to_seq_no.unwrap_or_default();
         let name = if let Some(log_seq_no) = seq_no {
+            tracing::debug!(
+                "update to {} sets block# {}-{}",
+                log_seq_no,
+                from_seq_no,
+                to_seq_no
+            );
             format!("upto{}.json", log_seq_no)
         } else {
-            let from_seq_no = state_diff.range.from_seq_no.unwrap_or_default();
-            let to_seq_no = state_diff.range.to_seq_no.unwrap_or_default();
+            tracing::debug!("update sets block# {}-{}", from_seq_no, to_seq_no);
             format!("{}-{}.json", from_seq_no, to_seq_no)
         };
 
         dump_target.push(name);
-        tracing::debug!("saving {:?}...", dump_target);
         let j = state_diff.to_json_state_diff();
         fs::write(dump_target, j.to_string())?;
     }

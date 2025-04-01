@@ -36,7 +36,7 @@ where
         unpacker: PackConst,
         lookup: Rc<RefCell<Lookup>>,
         anno_dump: Box<dyn Write>,
-    ) -> eyre::Result<(StateDiff, usize)> {
+    ) -> eyre::Result<StateDiff> {
         let mut parser = Self {
             current: iter,
             lookup_usage_state: LookupUsageState::Off,
@@ -48,14 +48,12 @@ where
         let contract_updates = parser.parse_contract_updates()?;
         let class_declarations = parser.parse_class_declarations()?;
         let n = parser.check_zero_tail()?;
-        Ok((
-            StateDiff {
-                contract_updates,
-                class_declarations,
-                range: parser.range,
-            },
-            n,
-        ))
+        Ok(StateDiff {
+            contract_updates,
+            class_declarations,
+            range: parser.range,
+            tail_size: n,
+        })
     }
 
     fn parse_contract_updates(&mut self) -> eyre::Result<Vec<ContractUpdate>> {
