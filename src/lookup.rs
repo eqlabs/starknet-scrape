@@ -1,4 +1,4 @@
-use eyre::{anyhow, ContextCompat};
+use eyre::{ContextCompat, anyhow};
 use num_bigint::{BigUint, ToBigUint};
 use redb::{Database, ReadableTableMetadata, TableDefinition, TableError, WriteTransaction};
 
@@ -19,26 +19,16 @@ pub struct Lookup {
     scratchpad: BTreeMap<u64, BigUint>,
     cur_block_no: Option<u64>,
     db: Database,
-    table_empty_flag: bool,
 }
 
 impl Lookup {
     pub fn new(db_file: &PathBuf) -> eyre::Result<Self> {
         let db = Database::create(db_file)?;
-        let txn = db.begin_read()?;
-        let empty = match txn.open_table(LOOKUP_TABLE) {
-            Err(TableError::TableDoesNotExist(_)) => true,
-            Err(err) => {
-                return Err(err.into());
-            }
-            Ok(table) => table.is_empty()?,
-        };
         Ok(Self {
             global_start_index: START_INDEX.to_biguint().unwrap(),
             scratchpad: BTreeMap::new(),
             cur_block_no: None,
             db,
-            table_empty_flag: empty,
         })
     }
 
@@ -77,7 +67,6 @@ impl Lookup {
                 self.do_expand()
             }
         } else {
-            assert!(self.table_empty_flag);
             self.do_expand()
         }
     }
@@ -103,16 +92,41 @@ impl Lookup {
 
         self.set_stateful_compression(&mut txn)?;
         txn.commit()?;
-        if !first {
-            self.table_empty_flag = false;
-        }
 
         tracing::debug!("lookup table expanded to {} entries", sz);
         Ok(())
     }
 
-    pub fn is_on(&self) -> bool {
-        !self.table_empty_flag
+    pub fn is_on(&self) -> eyre::Result<bool> {
+        let txn = self.db.begin_read()?;
+        match txn.open_table(PHASE_CHANGE) {
+            Err(TableError::TableDoesNotExist(_)) => {
+                return Ok(false);
+            }
+            Err(err) => {
+                return Err(err.into());
+            }
+            Ok(phase_change) => {
+                if let Some(found) = phase_change.get(STATEFUL_COMPRESSION_START)? {
+                    let start_no = found.value();
+                    let block_no = self.get_cur_block_no()?;
+                    if block_no < start_no {
+                        return Ok(false);
+                    }
+                } else {
+                    return Ok(false);
+                }
+            }
+        };
+
+        let empty = match txn.open_table(LOOKUP_TABLE) {
+            Err(TableError::TableDoesNotExist(_)) => true,
+            Err(err) => {
+                return Err(err.into());
+            }
+            Ok(table) => table.is_empty()?,
+        };
+        Ok(!empty)
     }
 
     pub fn get(&self, index: u64) -> eyre::Result<BigUint> {

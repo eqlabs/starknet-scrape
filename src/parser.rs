@@ -93,7 +93,7 @@ where
                     // switching to stateful compression
                     self.lookup_usage_state = LookupUsageState::Expand;
                     address
-                } else if self.lookup.borrow().is_on() && (address > self.pack_const.two) {
+                } else if self.lookup.borrow().is_on()? && (address > self.pack_const.two) {
                     // even if a statefully-compressed block didn't
                     // change 0x2's storage (and therefore its state
                     // diff doesn't contain the 0x2 address), it
