@@ -51,19 +51,6 @@ impl Lookup {
             return Err(anyhow!("index {} too small", index));
         }
 
-        if !self.is_on() && self.scratchpad.is_empty() {
-            // persist start block of stateful compression
-            let mut txn = self.db.begin_write()?;
-            if self.set_stateful_compression_start(&mut txn)? {
-                txn.commit()?;
-            } else {
-                // abort failing would be a problem...
-                if let Err(e) = txn.abort() {
-                    panic!("DB lost consistency: {}", e);
-                }
-            }
-        }
-
         if let Some(old) = self.scratchpad.insert(index, value.clone()) {
             // reject invalid input data
             self.scratchpad.insert(index, old);
@@ -114,7 +101,7 @@ impl Lookup {
             first = false;
         }
 
-        self.set_stateful_compression_crest(&mut txn)?;
+        self.set_stateful_compression(&mut txn)?;
         txn.commit()?;
         if !first {
             self.table_empty_flag = false;
@@ -166,41 +153,36 @@ impl Lookup {
 
     fn get_crest(&self) -> eyre::Result<Option<u64>> {
         let txn = self.db.begin_read()?;
-        let phase_change = txn.open_table(PHASE_CHANGE)?;
-        let opt_crest = if let Some(found) = phase_change.get(STATEFUL_COMPRESSION_CREST)? {
-            let crest = found.value();
-            Some(crest)
-        } else {
-            None
+        let opt_crest = match txn.open_table(PHASE_CHANGE) {
+            Err(TableError::TableDoesNotExist(_)) => None,
+            Err(err) => {
+                return Err(err.into());
+            }
+            Ok(phase_change) => {
+                if let Some(found) = phase_change.get(STATEFUL_COMPRESSION_CREST)? {
+                    let crest = found.value();
+                    Some(crest)
+                } else {
+                    None
+                }
+            }
         };
         Ok(opt_crest)
     }
 
-    fn set_stateful_compression_start(&self, txn: &mut WriteTransaction) -> eyre::Result<bool> {
+    fn set_stateful_compression(&self, txn: &mut WriteTransaction) -> eyre::Result<()> {
         let block_no = self.get_cur_block_no()?;
         let mut phase_change = txn.open_table(PHASE_CHANGE)?;
-        let opt_old = phase_change.insert(STATEFUL_COMPRESSION_START, block_no)?;
-        let res = if let Some(old) = opt_old {
-            let old_block_no = old.value();
-            if old_block_no != block_no {
-                tracing::warn!(
-                    "STATEFUL_COMPRESSION_START already set to {}, wil not be updated to {}",
-                    old_block_no,
-                    block_no
-                );
-            }
-            false
-        } else {
-            true
+        let updated = {
+            let opt_old = phase_change.insert(STATEFUL_COMPRESSION_CREST, block_no)?;
+            opt_old.is_none()
         };
+        if updated {
+            phase_change.insert(STATEFUL_COMPRESSION_START, block_no)?;
+            // not asserting STATEFUL_COMPRESSION_START wasn't set
+            // before because older code actually did set it earlier
+        }
 
-        Ok(res)
-    }
-
-    fn set_stateful_compression_crest(&self, txn: &mut WriteTransaction) -> eyre::Result<()> {
-        let block_no = self.get_cur_block_no()?;
-        let mut phase_change = txn.open_table(PHASE_CHANGE)?;
-        phase_change.insert(STATEFUL_COMPRESSION_CREST, block_no)?;
         Ok(())
     }
 
